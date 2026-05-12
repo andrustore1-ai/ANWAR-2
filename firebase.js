@@ -21,7 +21,7 @@
     logoImage: '', logoText: '', themeColor: '#EA580B',
     bannerEnabled: false, bannerImage: '', bannerTitle: '', bannerSubtitle: '',
     outsideEnabled: false, outsideTitle: '', outsideText: '',
-    taxRate: 0, serviceRate: 0, socials: {}
+    taxRate: 0, serviceRate: 0, deliveryRegions: {}, socials: {}
   };
   const SOCIAL_TYPES = [
     ['whatsapp','واتساب'], ['instagram','إنستغرام'], ['facebook','فيسبوك'], ['tiktok','تيك توك'],
@@ -53,7 +53,7 @@
   function list(obj){ if(!obj) return []; if(Array.isArray(obj)) return obj.filter(Boolean).map((data,i)=>({id:String(i),...(data||{})})); return Object.entries(obj).map(([id,data])=>({id,...(data||{})})); }
   function sortBySort(a,b){ return Number(a.sort||999)-Number(b.sort||999) || String(a.name||a.label||'').localeCompare(String(b.name||b.label||''),'ar',{numeric:true}); }
   function normalizeColor(c){ c=String(c||'').trim(); if(!c) return '#EA580B'; c=c.replace(/^#/,''); if(/^[0-9a-fA-F]{3}$/.test(c)) c=c.split('').map(x=>x+x).join(''); return /^[0-9a-fA-F]{6}$/.test(c)?('#'+c.toUpperCase()):'#EA580B'; }
-  function settingsWithDefaults(s){ return {...EMPTY_SETTINGS,...(s||{}), themeColor:normalizeColor((s&&s.themeColor)||EMPTY_SETTINGS.themeColor), socials:(s&&s.socials)||{}}; }
+  function settingsWithDefaults(s){ return {...EMPTY_SETTINGS,...(s||{}), themeColor:normalizeColor((s&&s.themeColor)||EMPTY_SETTINGS.themeColor), socials:(s&&s.socials)||{}, deliveryRegions:(s&&s.deliveryRegions)||{}}; }
   function money(v,currency){ const n=Number(v||0); return n.toFixed(Number.isInteger(n)?0:2)+' '+(currency||'₪'); }
   function orderNo(prefix){ const d=new Date(); return (prefix||'R7')+'-'+String(d.getFullYear()).slice(2)+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0')+'-'+Math.floor(1000+Math.random()*9000); }
   function makeKey(len){ const chars='23456789ABCDEFGHJKLMNPQRSTUVWXYZ'; let out=''; const arr=new Uint32Array(len||10); try{crypto.getRandomValues(arr)}catch(e){for(let i=0;i<arr.length;i++)arr[i]=Date.now()+i} for(let i=0;i<arr.length;i++) out+=chars[arr[i]%chars.length]; return out; }
@@ -124,15 +124,40 @@
   function qrUrl(link){ return 'https://api.qrserver.com/v1/create-qr-code/?size=320x320&data='+encodeURIComponent(link); }
   function statusLabel(s){ return ({new:'جديد',preparing:'قيد التحضير',ready:'جاهز',delivered:'تم التسليم',cancelled:'ملغي',whatsapp_sent:'أرسل واتساب'})[s]||s||'غير محدد'; }
   function channelLabel(s){ return ({kitchen:'المطبخ',whatsapp:'واتساب',table:'طاولة',manual:'يدوي',cashier:'كاشير'})[s]||s||'منيو'; }
-  function totals(items,settings){ const subtotal=(items||[]).reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0); const service=subtotal*Number(settings.serviceRate||0)/100; const tax=(subtotal+service)*Number(settings.taxRate||0)/100; return {subtotal,service,tax,total:subtotal+service+tax}; }
+  function totals(items,settings,extra){ extra=extra||{}; const subtotal=(items||[]).reduce((a,i)=>a+Number(i.price||0)*Number(i.qty||1),0); const service=subtotal*Number(settings.serviceRate||0)/100; const tax=(subtotal+service)*Number(settings.taxRate||0)/100; const shipping=Number(extra.shippingFee||0); return {subtotal,service,tax,shipping,total:subtotal+service+tax+shipping}; }
   async function createInvoiceFromOrder(orderId,order,settings){
     const existing=list(await get('invoices')).find(x=>x.orderId===orderId);
-    const t=totals(order.items||[],settings||{});
-    const data={invoiceNo:order.invoiceNo||order.orderNo||orderNo('INV'), orderId, source:order.source||'order', channel:order.channel||'kitchen', table:order.table||'', customer:order.customer||{}, items:order.items||[], subtotal:t.subtotal, service:t.service, tax:t.tax, total:t.total, status:'delivered', deliveredAt:order.deliveredAt||Date.now(), createdAt:existing.createdAt||Date.now(), updatedAt:now()};
+    const t=totals(order.items||[],settings||{},{shippingFee:order.shippingFee||0});
+    const data={invoiceNo:order.invoiceNo||order.orderNo||orderNo('INV'), orderId, source:order.source||'order', channel:order.channel||'kitchen', table:order.table||'', customer:order.customer||{}, customerDevice:order.customerDevice||'', shippingRegion:order.shippingRegion||'', shippingFee:Number(order.shippingFee||0), items:order.items||[], subtotal:t.subtotal, service:t.service, tax:t.tax, shipping:t.shipping, total:t.total, status:'delivered', deliveredAt:order.deliveredAt||Date.now(), createdAt:existing.createdAt||Date.now(), updatedAt:now()};
     if(existing.id) await set('invoices/'+existing.id,data); else await push('invoices',data);
     return data;
   }
   async function markDelivered(orderId,order,settings){ await update('orders/'+orderId,{status:'delivered',deliveredAt:now(),updatedAt:now()}); return createInvoiceFromOrder(orderId,{...order,deliveredAt:Date.now()},settings); }
+
+  function deviceId(){
+    let id=''; try{id=localStorage.getItem('r7_customer_device')||''}catch(e){}
+    if(!id){ id='dev_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10); try{localStorage.setItem('r7_customer_device',id)}catch(e){} }
+    return id;
+  }
+  function invoiceHtml(inv,id,settings,opts){
+    settings=settingsWithDefaults(settings||{}); opts=opts||{}; const currency=settings.currency||'₪';
+    const t=totals(inv.items||[],settings,{shippingFee:inv.shippingFee||inv.shipping||0});
+    const status=inv.status?statusLabel(inv.status):'فاتورة';
+    const no=escapeHtml(inv.invoiceNo||inv.orderNo||id||'فاتورة');
+    const customer=(inv.customer||{}).name||''; const phone=(inv.customer||{}).phone||'';
+    const date=localDate(inv.deliveredAt||inv.createdAt||Date.now());
+    const brand=normalizeColor(settings.themeColor||'#EA580B');
+    const logo=settings.logoImage?`<img src="${escapeHtml(settings.logoImage)}" style="width:52px;height:52px;border-radius:16px;object-fit:cover;display:block;margin:0 auto 6px">`:`<div style="width:52px;height:52px;border-radius:16px;background:${brand};color:#fff;display:grid;place-items:center;margin:0 auto 6px;font-weight:900">${escapeHtml(settings.logoText||'R7')}</div>`;
+    return `<div class="invoice proInvoice" id="print_${escapeHtml(id||'invoice')}" style="width:320px;max-width:100%;background:#fff;color:#111;padding:16px;border:1px solid #e5e7eb;border-radius:18px;font-family:Cairo,Tahoma,Arial;box-shadow:0 8px 24px rgba(15,23,42,.08)">
+      <div style="text-align:center">${logo}<h2 style="margin:0;font-size:22px;font-weight:900">${escapeHtml(settings.name||'فاتورة')}</h2><div style="font-weight:900;color:${brand};margin-top:3px">${no}</div><div style="font-size:12px;color:#64748b;font-weight:800">${date}</div></div>
+      <div style="display:flex;justify-content:space-between;gap:8px;background:#f8fafc;border-radius:14px;padding:9px 10px;margin:12px 0;font-size:12px;font-weight:900"><span>${status}</span><span>${escapeHtml(channelLabel(inv.channel||inv.source))}</span></div>
+      ${(customer||phone||inv.table||inv.shippingRegion)?`<div style="border:1px dashed #cbd5e1;border-radius:14px;padding:9px 10px;margin-bottom:10px;font-size:12px;font-weight:800;color:#334155">${customer?`<div>الزبون: ${escapeHtml(customer)}</div>`:''}${phone?`<div>الجوال: ${escapeHtml(phone)}</div>`:''}${inv.table?`<div>الطاولة: ${escapeHtml(inv.table)}</div>`:''}${inv.shippingRegion?`<div>المنطقة: ${escapeHtml(inv.shippingRegion)}</div>`:''}</div>`:''}
+      <div style="border-top:1px dashed #94a3b8;border-bottom:1px dashed #94a3b8;padding:8px 0;margin:8px 0">${(inv.items||[]).map(i=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;font-weight:800"><span style="max-width:180px">${escapeHtml(i.name)} × ${Number(i.qty||1)}</span><b>${money(Number(i.qty||1)*Number(i.price||0),currency)}</b></div>`).join('')||'<div style="text-align:center;color:#64748b;font-weight:800">لا توجد أصناف</div>'}</div>
+      <div style="font-size:13px;font-weight:800"><div style="display:flex;justify-content:space-between;padding:4px 0"><span>المجموع</span><b>${money(t.subtotal,currency)}</b></div>${t.service?`<div style="display:flex;justify-content:space-between;padding:4px 0"><span>خدمة</span><b>${money(t.service,currency)}</b></div>`:''}${t.tax?`<div style="display:flex;justify-content:space-between;padding:4px 0"><span>ضريبة</span><b>${money(t.tax,currency)}</b></div>`:''}${t.shipping?`<div style="display:flex;justify-content:space-between;padding:4px 0"><span>توصيل</span><b>${money(t.shipping,currency)}</b></div>`:''}<div style="display:flex;justify-content:space-between;margin-top:8px;padding:10px;border-radius:14px;background:${brand};color:#fff;font-size:17px;font-weight:900"><span>الإجمالي</span><b>${money(t.total,currency)}</b></div></div>
+      <div style="text-align:center;color:#64748b;font-weight:900;font-size:12px;margin-top:12px">شكراً لاختياركم ${escapeHtml(settings.name||'مطعمنا')}</div>
+    </div>`;
+  }
+
   function socialLink(type,url){ if(!url) return '#'; if(type==='whatsapp' && /^\d/.test(url)) return 'https://wa.me/'+url.replace(/\D/g,''); if(type==='phone' && /^\+?\d/.test(url)) return 'tel:'+url.replace(/\s/g,''); return url; }
   function icon(type,size){
     const w=size||22, c=`width="${w}" height="${w}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"`;
@@ -151,5 +176,5 @@
   function downloadDataUrl(dataUrl,filename){ const a=document.createElement('a'); a.href=dataUrl; a.download=filename||'invoice.png'; document.body.appendChild(a); a.click(); a.remove(); }
   function printElement(id){ const el=typeof id==='string'?document.getElementById(id):id; if(!el) return; const w=window.open('','_blank','width=420,height=720'); w.document.write('<html dir="rtl"><head><meta charset="UTF-8"><title>فاتورة</title><style>body{font-family:Cairo,Tahoma,Arial;margin:0;padding:12px}*{box-sizing:border-box}.invoice{width:280px;margin:auto}.row{display:flex;justify-content:space-between;border-bottom:1px dashed #ddd;padding:6px 0}.center{text-align:center}@media print{button{display:none}}</style></head><body>'+el.outerHTML+'<script>setTimeout(()=>print(),300)<\/script></body></html>'); w.document.close(); }
 
-  window.R7F={firebaseConfig,RESTAURANT_ID,BASE,DEFAULT_ADMIN_KEY,EMPTY_SETTINGS,SOCIAL_TYPES,CAT_ICONS,ready:()=>sdkReady,get,set,update,remove,push,watch,list,sortBySort,normalizeColor,settingsWithDefaults,money,orderNo,makeKey,hashKey,now,toMillis,localDate,todayStart,escapeHtml,errorMessage,ensureBaseData,cleanDemoData,sessionGet,sessionSave,sessionIsValid,requireAdmin,logout,validateAdminKey,calcExpiry,menuBaseUrl,qrUrl,statusLabel,channelLabel,totals,createInvoiceFromOrder,markDelivered,socialLink,icon,fileToDataUrl,ensureHtml2Canvas,downloadDataUrl,printElement,sanitizeId};
+  window.R7F={firebaseConfig,RESTAURANT_ID,BASE,DEFAULT_ADMIN_KEY,EMPTY_SETTINGS,SOCIAL_TYPES,CAT_ICONS,ready:()=>sdkReady,get,set,update,remove,push,watch,list,sortBySort,normalizeColor,settingsWithDefaults,money,orderNo,makeKey,hashKey,now,toMillis,localDate,todayStart,escapeHtml,errorMessage,ensureBaseData,cleanDemoData,sessionGet,sessionSave,sessionIsValid,requireAdmin,logout,validateAdminKey,calcExpiry,menuBaseUrl,qrUrl,statusLabel,channelLabel,totals,createInvoiceFromOrder,markDelivered,deviceId,invoiceHtml,socialLink,icon,fileToDataUrl,ensureHtml2Canvas,downloadDataUrl,printElement,sanitizeId};
 })();
