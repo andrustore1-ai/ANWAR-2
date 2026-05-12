@@ -1,25 +1,40 @@
-نسخة R7 Burger المصححة - بدون مجلدات
+نسخة R7 Burger الاحترافية - Realtime Database
 
-الملفات:
-- firebase.js: إعداد Firebase وكل دوال الحفظ والقراءة. هذا هو ملف الجافا الوحيد الخاص بفايربيز.
-- index.html: منيو الزبون فقط، بدون إدارة.
-- login.html: تسجيل دخول الإدارة. المفتاح الافتراضي 0000.
-- admin.html: إدارة الإعدادات، الأقسام، الأصناف، ومفاتيح الدخول.
-- tables.html: توليد الطاولات و QR وحفظها في Firebase.
-- kitchen.html: شاشة المطبخ مع عداد الطلبات الجديدة.
-- reports.html: التقارير والفواتير الحرارية وطلب واتساب يدوي.
-- firebase-check.html: فحص القراءة والكتابة والتهيئة.
-- database.rules.txt: قواعد Realtime Database المطلوبة.
+طريقة الرفع:
+1) ارفع كل الملفات الموجودة هنا في نفس المكان بدون مجلدات.
+2) لا ترفع النسخ القديمة معها حتى لا تظهر أخطاء قديمة مثل auth/admin-restricted-operation.
+3) افتح Firebase Console > Realtime Database > Rules.
+4) انسخ محتوى ملف database.rules.txt ثم اضغط Publish.
+5) افتح firebase-check.html واضغط تشغيل الفحص ثم تهيئة البيانات.
+6) افتح login.html.
 
-طريقة التشغيل:
-1) ارفع كل الملفات كما هي في نفس المكان، بدون مجلدات.
-2) افتح Firebase Console > Realtime Database > Rules.
-3) انسخ محتوى database.rules.txt واضغط Publish.
-4) افتح firebase-check.html واضغط تشغيل الفحص ثم تهيئة البيانات.
-5) افتح login.html واستخدم المفتاح 0000.
-6) من admin.html أنشئ مفتاح جديد دائم أو مؤقت.
+مفتاح الدخول الافتراضي:
+0000
+
+بعد الدخول:
+- افتح admin.html.
+- من قسم مفاتيح الدخول أنشئ مفتاح أدمن جديد.
+- يمكنك تعطيل/حذف المفاتيح من نفس القسم.
 
 مهم:
-- هذه النسخة لا تستخدم Firebase Auth نهائياً، لذلك خطأ auth/admin-restricted-operation لا يمكن أن يطلع منها.
-- هذه النسخة تستخدم Realtime Database وليس Firestore.
-- لو لم يحفظ Firebase، السبب غالباً أن قواعد Realtime Database لم تُنشر أو أنك تفتح نسخة قديمة.
+- هذه النسخة لا تستخدم Firebase Auth نهائياً.
+- هذه النسخة لا تستخدم Firestore نهائياً.
+- الحفظ كله عبر Realtime Database.
+- الصور التي تختارها من الجهاز يتم ضغطها وتحويلها Data URL وحفظها داخل Realtime Database.
+- التقارير تحتسب المبيعات فقط عند تسليم الطلب، وليس عند إنشاء الطلب.
+
+الملفات:
+- index.html: صفحة المنيو للزبون فقط، بدون روابط إدارة.
+- login.html: دخول الأدمن بالمفتاح.
+- admin.html: لوحة الإدارة المعزولة.
+- tables.html: توليد الطاولات وروابط QR.
+- kitchen.html: شاشة المطبخ وعدّاد الطلبات.
+- reports.html: التقارير والفواتير الحرارية.
+- firebase-check.html: فحص الاتصال والتهيئة.
+- firebase.js: إعداد Firebase والكود المشترك فقط.
+- database.rules.txt: قواعد Realtime Database.
+
+تشغيل محلي للتجربة:
+python3 -m http.server 8000
+ثم افتح:
+http://localhost:8000/firebase-check.html

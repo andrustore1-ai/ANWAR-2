@@ -1,7 +1,7 @@
 {
   "rules": {
     "restaurants": {
-      "r7_burger": {
+      "$restaurantId": {
         ".read": true,
         ".write": true
       }
