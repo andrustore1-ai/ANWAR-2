@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "restaurants": {
+      "r7_burger": {
+        ".read": true,
+        ".write": true
+      }
+    }
+  }
+}
